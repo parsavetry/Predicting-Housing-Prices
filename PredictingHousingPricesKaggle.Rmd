@@ -1,0 +1,317 @@
+---
+title: "Predicting Housing Prices Kaggle Competition"
+author: "Parsa Vetry"
+date: "2026-03-15"
+output: pdf_document
+---
+
+# 1. Importing data and selecting variables of interest
+
+```{r, include=FALSE}
+# Import dataset
+HousePriceTrain <- read.csv("HousePriceTrain.csv")
+
+# Select variables of interest
+library(dplyr)
+Data <- HousePriceTrain |>
+  select(SalePrice, LotArea, OverallQual, TotalBsmtSF, GrLivArea, TotRmsAbvGrd, GarageArea, OverallCond, Neighborhood, LotConfig)
+
+# We mutate TotalBsmtSF and GarageArea by adding 1 in order to allow Box-Cox.
+Data <- Data |>
+  mutate(TotalBsmtSF = TotalBsmtSF + 1,
+         GarageArea = GarageArea + 1)
+
+# Attach
+attach(Data)
+```
+
+```{r}
+# Summary Statistics
+cat("SalePrice: \n")
+summary(SalePrice)
+cat("Standard Deviation: ", sd(SalePrice), "\n\n")
+
+cat("LotArea: \n")
+summary(LotArea)
+cat("Standard Deviation: ", sd(LotArea), "\nCorrelation to SalePrice: ", cor(LotArea, SalePrice), "\n\n")
+
+cat("OverallQual: \n")
+summary(OverallQual)
+cat("Standard Deviation: ", sd(OverallQual), "\nCorrelation to SalePrice: ", cor(OverallQual, SalePrice), "\n\n")
+
+cat("TotalBsmtSF: \n")
+summary(TotalBsmtSF)
+cat("Standard Deviation: ", sd(TotalBsmtSF), "\nCorrelation to SalePrice: ", cor(TotalBsmtSF, SalePrice), "\n\n")
+
+cat("GrLivArea: \n")
+summary(GrLivArea)
+cat("Standard Deviation: ", sd(GrLivArea), "\nCorrelation to SalePrice: ", cor(GrLivArea, SalePrice), "\n\n")
+
+cat("TotRmsAbvGrd: \n")
+summary(TotRmsAbvGrd)
+cat("Standard Deviation: ", sd(TotRmsAbvGrd), "\nCorrelation to SalePrice: ", cor(TotRmsAbvGrd, SalePrice), "\n\n")
+
+cat("GarageArea: \n")
+summary(GarageArea)
+cat("Standard Deviation: ", sd(GarageArea), "\nCorrelation to SalePrice: ", cor(GarageArea, SalePrice), "\n\n")
+
+cat("OverallCond: \n")
+summary(OverallCond)
+cat("Standard Deviation: ", sd(OverallCond), "\nCorrelation to SalePrice: ", cor(OverallCond, SalePrice), "\n\n")
+```
+
+# 2. Justification of categorical variables
+
+To justify our 2 categorical variables (LotConfig and Neighborhood), we perform an ANOVA for Group Effect.
+
+```{r}
+# 1. Does the choice of LotConfig (X) have an effect on SalePrice (Y)?
+anova_LotConfig <- aov(SalePrice ~ LotConfig)
+summary(anova_LotConfig)
+
+# 2. Does the choice of Neighborhood (X) have an effect on SalePrice (Y)?
+anova_Neighborhood <- aov(SalePrice ~ Neighborhood)
+summary(anova_Neighborhood)
+```
+We see significant p-values for both tests, so both LotConfig and Neighborhood have significant effects on SalePrice.
+
+# 3. Converting categorical variables into numbers
+
+In order to convert Neighborhood and LotConfig into numerical variables, we replace categories with the mean SalePrice for properties in said categories.
+
+```{r, include=FALSE}
+neighborhood_means <- Data |> 
+  group_by(Neighborhood) |>
+  summarize(mean = mean(SalePrice))
+
+lotconfig_means <- Data |>
+  group_by(LotConfig) |>
+  summarize(mean = mean(SalePrice))
+
+Data <- Data |>
+  left_join(neighborhood_means, by="Neighborhood") |>
+  mutate(Neighborhood = mean) |>
+  select(-mean) |>
+  
+  left_join(lotconfig_means, by="LotConfig") |>
+  mutate(LotConfig = mean) |>
+  select(-mean)
+
+attach(Data)
+```
+
+# 4. Diagnostics of the initial model
+
+We first examine the scatterplot matrix of SalePrice vs predictors.
+
+```{r}
+pairs(Data[,1:8], col = rgb(0, 0, 1, alpha = 0.1), pch=19, cex=0.4)
+```
+
+It is clear from the scatterplot matrix that many of the variables do not share a linear relationship with SalePrice. 
+
+```{r}
+m1 <- lm(SalePrice ~ LotArea + OverallQual + TotalBsmtSF + GrLivArea + TotRmsAbvGrd + GarageArea + OverallCond + Neighborhood + LotConfig)
+summary(m1)
+```
+
+```{r}
+# Diagnostic plots
+par(mfrow = c(2, 2))
+plot(m1)
+```
+Linearity: The Residuals vs Fitted plot and scatterplot matrix show that linearity is violated.
+
+Normality: We see on the Q-Q Residuals plot that the residual plots follow a formation of a line reasonably well, indicating that there most of normality is met but there are some notable outliers in the upper tail which concludes that not all of the normality is satisfied/met.
+
+Constance Variance: In the Scale-Location plot, there appears to be an upward pattern that is consistent which implies that the constant variance is violated.
+
+Outliers/influential points: Seen in the Q-Q plot and standardized residual plot, reveal tons of large residuals. The Residuals vs Leverage points plot, also shows that some points represent bad leverage points with high residuals.
+
+We can clearly see that the data is highly skewed from the scatterplot matrix. 
+
+Thus, we cannot conclude that the model is highly effective in understanding and predicting the effects of SalePrice.
+We must transform both response and predictor variables.
+
+# 5. Transforming X and Y simultaneously using Box-cox method.
+
+```{r}
+library(car)
+summary(powerTransform(Data[, 1:8]))
+```
+
+Based on the output from Box-Cox, both no transformations and log transformations seem to be unhelpful, but since our model is invalid with no transformations, we will transform both X and Y with log transform for greater interpretability.
+
+# 5. Trying out the new model
+
+```{r}
+m2 <- lm(log(SalePrice) ~ log(LotArea) + log(GrLivArea) + log(OverallCond) + log(TotRmsAbvGrd) + log(OverallQual) + log(GarageArea) + log(TotalBsmtSF))
+summary(m2)
+```
+
+We then produce the diagnostic plots:
+```{r}
+# Diagnostic plots
+par(mfrow = c(2, 2))
+plot(m2)
+```
+Linearity: The Residuals vs Fitted plot shows an improvement in the red line for linearity.
+
+Normality: We see on the Q-Q Residuals plot that the residual plots follows a formation of a line perfectly well, with little to no outliers, the normality is significantly better.
+
+Constant Variance: In the Scale-Location plot, there appears to be no pattern which suggest that the constance that the constance vairance is no longer violated.
+
+Outliers/influential points: Seen in the Q-Q plot and standardized residual plot, less residuals and bad leverage points are present.
+
+Our data is now more normal and variance is stabilized. All predictors are significant. However, OverallCond and TotRmsAbvGrd do not have the correct coefficients, so more investigation is needed. We will need to use Added Variable Plots and variable selection.
+
+# 6. Added Variable Plots
+```{r}
+avPlot(m2, variable = log(LotArea), ask = FALSE)
+avPlot(m2, variable = log(GrLivArea), ask = FALSE)
+avPlot(m2, variable = log(OverallCond), ask = FALSE)
+avPlot(m2, variable = log(TotRmsAbvGrd), ask = FALSE)
+avPlot(m2, variable = log(OverallQual), ask = FALSE)
+avPlot(m2, variable = log(GarageArea), ask = FALSE)
+avPlot(m2, variable = log(TotalBsmtSF), ask = FALSE)
+```
+Once every variable is accounted for, we can see that GarageArea adds little to the prediction of SalePrice. Meanwhile, LotArea, OverallQual, GrLivArea, and TotalBsmtSF shows a positive correlation indicating that these features tend to have higher sale prices. OverallCond and TotalRmsAbvGrd show a negative correlation which means that these predictors tend to lead to lower sale prices.
+
+```{r}
+round(vif(m2), 2)
+```
+We observe that none of our variables suffer from multicollinearity issues.
+
+# 7. Variable Selection for the New Model:
+
+In order to find the optimum model with our predictors, we perform variable selection:
+
+```{r}
+mfull <- lm(log(SalePrice) ~ log(LotArea) + log(GrLivArea) +
+                   OverallCond + log(TotRmsAbvGrd) +
+                   OverallQual + log(GarageArea) +
+                   log(TotalBsmtSF))
+          
+
+summary(mfull)
+```
+
+```{r}
+library(leaps)
+subset <- regsubsets(log(SalePrice) ~ log(LotArea) + log(GrLivArea) +
+                   OverallCond + log(TotRmsAbvGrd) +
+                   OverallQual + log(GarageArea) +
+                   log(TotalBsmtSF),
+                   data = Data)
+summary(subset)
+```
+
+```{r}
+m_full <- mfull
+
+m6 <- lm(log(SalePrice) ~ log(LotArea) + log(GrLivArea) +
+           OverallCond + OverallQual +
+           log(GarageArea) + log(TotalBsmtSF))
+
+m5 <- lm(log(SalePrice) ~ log(LotArea) + log(GrLivArea) +
+           OverallQual + log(GarageArea) +
+           log(TotalBsmtSF))
+
+m4 <- lm(log(SalePrice) ~ log(LotArea) + log(GrLivArea) +
+           OverallQual + log(TotalBsmtSF))
+
+m3 <- lm(log(SalePrice) ~ log(LotArea) + log(GrLivArea) +
+           OverallQual)
+
+m2 <- lm(log(SalePrice) ~ log(LotArea) + log(GrLivArea))
+
+m1 <- lm(log(SalePrice) ~ log(LotArea))
+
+data.frame(
+  Model = c("Full", "6 predictors", "5 predictors", "4 predictors",
+            "3 predictors", "2 predictors", "1 predictor"),
+  Adj_R2 = c(summary(m_full)$adj.r.squared,
+             summary(m6)$adj.r.squared,
+             summary(m5)$adj.r.squared,
+             summary(m4)$adj.r.squared,
+             summary(m3)$adj.r.squared,
+             summary(m2)$adj.r.squared,
+             summary(m1)$adj.r.squared),
+  AIC = c(AIC(m_full),
+          AIC(m6),
+          AIC(m5),
+          AIC(m4),
+          AIC(m3),
+          AIC(m2),
+          AIC(m1)),
+  BIC = c(BIC(m_full),
+          BIC(m6),
+          BIC(m5),
+          BIC(m4),
+          BIC(m3),
+          BIC(m2),
+          BIC(m1))
+)
+```
+
+The full model has highest Adj_R^2 and lowest AIC. Although it has slightly higher BIC, the best candidate model is the full model.
+
+# 8. Exporting predictions
+
+Finally, we generate predictions on the test data and export 
+
+```{r}
+HousePriceTrain <- read.csv("HousePriceTrain.csv")
+
+# Select initial variables
+library(dplyr)
+trainData <- HousePriceTrain |>
+  select(SalePrice, LotArea, OverallQual, TotalBsmtSF, GrLivArea, TotRmsAbvGrd, GarageArea, OverallCond)
+
+# Train the data
+trainData$logSalePrice <- log(trainData$SalePrice)
+trainData$logLotArea <- log(trainData$LotArea)
+trainData$logTotalBsmtSF <- log(trainData$TotalBsmtSF + 1) # Able to log 0 values
+trainData$logGrLivArea <- log(trainData$GrLivArea)
+trainData$logTotRmsAbvGrd <- log(trainData$TotRmsAbvGrd)
+trainData$logGarageArea <- log(trainData$GarageArea + 1)
+
+# Model
+finalModel <- lm(logSalePrice ~ logLotArea + OverallQual 
+                 + logTotalBsmtSF + logGrLivArea
+                 + logTotRmsAbvGrd
+                 + logGarageArea,
+                 data = trainData)
+
+HousePriceTest <- read.csv("HousePriceTestNoY.csv")
+
+HousePriceTest$logLotArea <- log(HousePriceTest$LotArea)
+HousePriceTest$logTotalBsmtSF <- log(HousePriceTest$TotalBsmtSF + 1)
+HousePriceTest$logGrLivArea <- log(HousePriceTest$GrLivArea)
+HousePriceTest$logTotRmsAbvGrd <- log(HousePriceTest$TotRmsAbvGrd)
+HousePriceTest$logGarageArea <- log(HousePriceTest$GarageArea + 1)
+
+
+# Predict logSalePrice
+HousePriceTest$predictLogSP <-predict(finalModel, newdata = HousePriceTest)
+
+# Original scale
+HousePriceTest$SalePrice <- exp(HousePriceTest$predictLogSP)
+
+# Add rows for ID 
+HousePriceTest$Id <- 1:nrow(HousePriceTest)
+
+# Dataframe with ID and SalePrice
+finalDF <- data.frame(
+  Id = HousePriceTest$Id,
+  SalePrice = HousePriceTest$SalePrice
+)
+
+print(finalDF[1:5,])
+
+write.csv(finalDF, "solution.csv", row.names = FALSE)
+
+# Achieved a top-60 placement in the Kaggle competition
+
+```
+
