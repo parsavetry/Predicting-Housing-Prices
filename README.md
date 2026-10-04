@@ -1,6 +1,6 @@
 # Predicting Housing Prices — Kaggle Competition
 
-A statistical modeling project focused on predicting residential housing prices using regression analysis in R. The project placed Top 60 in the Kaggle competition.
+A statistical modeling project focused on predicting residential housing prices using regression analysis in R. The project placed top 60 in the Kaggle competition.
 
 ## Project Overview
 
